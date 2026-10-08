@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>TIC-TAC-TOE | 1v1 Arena Duel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- SCREEN 1: LOBBY & ROOM CHECK -->
+    <section id="lobby-screen" class="screen active">
+      <button class="audio-toggle audio-toggle-lobby" title="Toggle Audio">🔊</button>
+
+      <div class="lobby-panel">
+        <div class="brand">
+        <!-- <div class="brand-badge" id="brand-badge-text">Tic-Tac-Toe SHOWDOWN</div>  --> 
+
+          <!-- Server Online / Waking Status Indicator -->
+        <br>  <div id="server-status-pill" class="server-status waking" title="Server Status">
+            <span class="status-dot"></span>
+            <span id="server-status-text" class="status-text">WAKING UP SERVER...</span>
+          </div>
+
+          <h1>NEON<span class="gold-text">GRID</span></h1>
+          <p>Tactical 1v1 Tic-Tac-Toe Game.</p>
+        </div>
+
+        <!-- 1A: Default Create/Join Card -->
+        <div id="standard-lobby-card" class="card-glass">
+          <div class="room-guide-box">
+            <span class="guide-icon">💡</span>
+            <p><strong>How Rooms Work:</strong> Enter any room code. If it exists, you'll join it. Leave vacant to generate a random arena code automatically!</p>
+          </div>
+
+          <div class="input-block">
+            <label for="player-name">Your Call-Sign</label>
+            <input type="text" id="player-name" placeholder="Blade" maxlength="12" autocomplete="off">
+          </div>
+
+          <div class="input-block">
+            <label for="room-id">Room Code</label>
+            <input type="text" id="room-id" placeholder="AUTO-GENERATE" maxlength="8" autocomplete="off">
+          </div>
+
+          <div class="input-block">
+            <label>Match Format</label>
+            <div class="format-toggle-group">
+              <button type="button" class="btn-format active" data-format="3">
+                <span class="format-title">3 ROUND</span>
+                <span class="format-sub">First to 2 for win</span>
+              </button>
+              <button type="button" class="btn-format" data-format="5">
+                <span class="format-title">5 ROUND</span>
+                <span class="format-sub">First to 3 for win</span>
+              </button>     
+            </div>
+          </div>
+
+          <button id="btn-inspect-room" class="btn primary-action">ENTER / CREATE ARENA</button>
+        </div>
+
+        <!-- 1B: Invited Join Card -->
+        <div id="invite-lobby-card" class="card-glass hidden">
+          <div class="invite-banner">
+            <div class="invite-badge">⚔️ DUEL INVITATION</div>
+            <p class="invite-msg">Challenged by <strong id="invite-host-name" class="gold-text">Host</strong> to room <strong id="invite-room-code" class="gold-text">ARENA</strong>.</p>
+            <span id="invite-format-badge" class="format-pill">BEST OF 3</span>
+          </div>
+
+          <div class="input-block">
+            <label for="invite-player-name">Your Call-Sign</label>
+            <input type="text" id="invite-player-name" placeholder="Viper" maxlength="12" autocomplete="off">
+          </div>
+
+          <button id="btn-accept-invite" class="btn primary-action">ACCEPT & JOIN DUEL</button>
+          <button id="btn-decline-invite" class="btn secondary-btn">DECLINE & CREATE OWN</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 2: WAITING LOBBY -->
+    <section id="waiting-screen" class="screen">
+      <div class="waiting-panel">
+        <div class="status-header">
+          <div class="pulse-ring"></div>
+          <h2>WAITING FOR CHALLENGER</h2>
+          <p>Share this room code with your friend to connect</p>
+        </div>
+
+        <div class="room-share-badge">
+          <span class="code-label">ROOM:</span>
+          <span id="display-room-code" class="code-value">---</span>
+          <button id="btn-copy-link" class="btn-copy" title="Copy Room Link">🔗 COPY LINK</button>
+        </div>
+
+        <div class="preview-stage">
+          <canvas id="mini-demo-canvas" width="240" height="240"></canvas>
+          <span class="preview-caption">Practice grid warming up...</span>
+        </div>
+
+        <button id="btn-cancel-waiting" class="btn secondary-btn cancel-btn">✕ CANCEL & RETURN HOME</button>
+      </div>
+    </section>
+
+    <!-- SCREEN 3: ACTIVE 1v1 BATTLE ARENA -->
+    <section id="game-screen" class="screen">
+      <!-- 2-TIER CLEAN IN-GAME HUD -->
+      <header class="hud-top">
+        <!-- Tier 1: Utility & Match Info Strip -->
+        <div class="hud-tier-util">
+          <button id="btn-forfeit" class="btn-hud-action" title="Forfeit / Exit Match">
+            <span class="btn-icon">🚪</span>
+            <span class="btn-label">EXIT</span>
+          </button>
+
+          <div class="match-meta">
+            <span id="round-title" class="round-indicator">ROUND 1 OF 3</span>
+            <div id="turn-banner" class="turn-banner">X'S TURN</div>
+          </div>
+
+          <button id="btn-audio" class="audio-toggle audio-toggle-game" title="Toggle Audio">🔊</button>
+        </div>
+
+        <!-- Tier 2: Player Duel Info & Center Timer -->
+        <div class="hud-tier-players">
+          <!-- Player 1 -->
+          <div class="player-card" id="hud-p1">
+            <div class="symbol-badge symbol-x">X</div>
+            <div class="player-info">
+              <span class="p-role-tag" id="p1-tag">(YOU)</span>
+              <span class="p-name" id="p1-name">Player 1</span>
+              <div class="p-stats-row">
+                <span class="p-win-text" id="p1-win-text">0 Wins</span>
+                <div class="score-pips" id="p1-pips"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Center Turn Timer Badge -->
+          <div class="turn-timer-badge" id="turn-timer-badge">
+            <span class="timer-icon">⏱️</span>
+            <span id="turn-timer-sec">30</span>s
+          </div>
+
+          <!-- Player 2 -->
+          <div class="player-card align-right" id="hud-p2">
+            <div class="player-info">
+              <span class="p-role-tag" id="p2-tag">(OPPONENT)</span>
+              <span class="p-name" id="p2-name">Player 2</span>
+              <div class="p-stats-row">
+                <div class="score-pips" id="p2-pips"></div>
+                <span class="p-win-text" id="p2-win-text">0 Wins</span>
+              </div>
+            </div>
+            <div class="symbol-badge symbol-o">O</div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Neon Turn Progress Bar -->
+      <div class="turn-bar-track">
+        <div id="turn-timer-bar" class="turn-bar-fill"></div>
+      </div>
+
+      <!-- Main Board Stage -->
+      <main class="board-stage">
+        <div class="ttt-grid" id="ttt-grid">
+          <button class="cell" data-index="0"></button>
+          <button class="cell" data-index="1"></button>
+          <button class="cell" data-index="2"></button>
+          <button class="cell" data-index="3"></button>
+          <button class="cell" data-index="4"></button>
+          <button class="cell" data-index="5"></button>
+          <button class="cell" data-index="6"></button>
+          <button class="cell" data-index="7"></button>
+          <button class="cell" data-index="8"></button>
+
+          <svg id="strike-svg" class="strike-svg">
+            <line id="strike-line" x1="0" y1="0" x2="0" y2="0" />
+          </svg>
+        </div>
+      </main>
+
+      <!-- Countdown Overlay -->
+      <div id="countdown-modal" class="modal-backdrop hidden">
+        <div class="countdown-pop" id="countdown-num">3</div>
+      </div>
+
+      <!-- SUDDEN DEATH DECLARATION & INTERMISSION MODAL -->
+      <div id="deathmatch-modal" class="modal-backdrop hidden">
+        <div class="modal-card deathmatch-card">
+          <div class="deathmatch-icon">⚡</div>
+          <div class="deathmatch-badge">OVERTIME DUEL</div>
+          <h2>DEATH MATCH DECLARED!</h2>
+          <p class="deathmatch-desc">
+            Series is deadlocked in a tie. Regulations are over. Rapid <strong>10-second blitz turns</strong> commence now! First round win takes the entire championship!
+          </p>
+
+          <div class="deathmatch-rules-box">
+            <div class="rule-item">⏱️ <strong>10s Moves:</strong> Strict auto-move punishment</div>
+            <div class="rule-item">🏆 <strong>Golden Round:</strong> Any win seals the championship</div>
+          </div>
+
+          <div class="deathmatch-intermission">
+            <span class="intermission-label">Take a breath. Battle begins in <strong id="deathmatch-sec" class="gold-text">10</strong>s</span>
+            <div class="intermission-progress-bar">
+              <div id="deathmatch-progress-fill" class="intermission-progress-fill"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Round Result Card -->
+      <div id="round-modal" class="modal-backdrop hidden">
+        <div class="modal-card round-card" id="round-card-container">
+          <div id="round-result-badge" class="round-status-badge">ROUND 1 COMPLETE</div>
+          <h2 id="round-modal-title">YOU WON THIS ROUND!</h2>
+
+          <div class="round-scoreboard">
+            <div class="sc-side">
+              <span class="sc-sym symbol-x">X</span>
+              <span class="sc-name" id="sc-p1-name">P1</span>
+              <span class="sc-score" id="sc-p1-score">0</span>
+            </div>
+            <div class="sc-vs">VS</div>
+            <div class="sc-side">
+              <span class="sc-sym symbol-o">O</span>
+              <span class="sc-name" id="sc-p2-name">P2</span>
+              <span class="sc-score" id="sc-p2-score">0</span>
+            </div>
+          </div>
+
+          <p id="round-modal-subtitle" class="round-target-desc">Target: First to 2 wins takes match</p>
+
+          <div class="round-next-box">
+            <span class="next-txt">Next round commencing...</span>
+            <div class="next-progress-bar">
+              <div class="next-progress-fill" id="next-progress-fill"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Championship Match Over Modal -->
+      <div id="victory-modal" class="modal-backdrop hidden">
+        <div class="modal-card victory-card" id="victory-card">
+          <div class="trophy" id="victory-icon">🏆</div>
+          <h2 id="victory-title">MATCH FINISHED!</h2>
+          <p id="victory-subtitle">Player conquered the grid.</p>
+          <div class="modal-actions victory-actions">
+            <button id="btn-rematch" class="btn primary-action">PLAY AGAIN (<span id="rematch-counter">0</span>/2)</button>
+            <button id="btn-leave-match" class="btn secondary-btn">LEAVE TO HOME</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- FORFEIT CONFIRMATION MODAL -->
+      <div id="forfeit-modal" class="modal-backdrop hidden">
+        <div class="modal-card forfeit-card">
+          <div class="modal-icon">🚪</div>
+          <h3>Forfeit Match?</h3>
+          <p>Conceding will surrender the match and grant instant victory to your opponent.</p>
+          <div class="modal-actions">
+            <button id="btn-cancel-forfeit" class="btn secondary-btn">Cancel</button>
+            <button id="btn-confirm-forfeit" class="btn danger-btn">Forfeit & Leave</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- POPUP MODAL: ROOM STATUS INSPECTOR -->
+    <div id="room-inspector-modal" class="modal-backdrop hidden">
+      <div class="modal-card inspector-modal-card">
+        <div id="inspector-icon" class="modal-icon">⚔️</div>
+        <h3 id="inspector-title">Room Found!</h3>
+
+        <div id="inspector-details" class="inspector-details-card">
+          <div class="inspector-row">
+            <span class="inspector-label">ROOM</span>
+            <span id="inspector-code" class="inspector-pill code-pill">PATA</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">HOST</span>
+            <span id="inspector-host" class="inspector-val">flex</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">MODE</span>
+            <span id="inspector-mode" class="inspector-pill format-pill">BEST OF 5</span>
+          </div>
+        </div>
+
+        <p id="inspector-desc" class="inspector-prompt">Ready to duel?</p>
+
+        <div class="modal-actions inspector-actions">
+          <button id="btn-modal-cancel" class="btn secondary-btn">Cancel</button>
+          <button id="btn-modal-confirm" class="btn primary-action">JOIN ARENA</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+ 
+<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
