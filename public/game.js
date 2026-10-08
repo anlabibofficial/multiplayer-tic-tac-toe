@@ -101,7 +101,7 @@ const sfx = new AudioFX();
 
 // ================= SOCKET & CLIENT STATE =================
 // Replace const socket = io(); with your Render URL:
-const BACKEND_URL = "https://YOUR-RENDER-APP-NAME.onrender.com";
+const BACKEND_URL = "https://multiplayer-tic-tac-toe-ompz.onrender.com";
 const socket = io(BACKEND_URL);
 
 
