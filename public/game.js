@@ -99,7 +99,7 @@ class AudioFX {
 
 const sfx = new AudioFX();
 
-// ================= SESSION TOKEN (SURVIVES MOBILE APP SWITCHES) =================
+// ================= SESSION TOKEN =================
 let playerToken = sessionStorage.getItem('neongrid_player_token');
 if (!playerToken) {
   playerToken = 'tok_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
@@ -129,10 +129,10 @@ let currentTargetWins = 2;
 let isDeathMatchMode = false;
 let isMatchConcluded = false;
 
-// Turn Timer Tracking
+// Turn Timer Tracking (Default 15s)
 let turnTimerInterval = null;
-let remainingTurnSeconds = 30;
-let currentTurnMaxSeconds = 30;
+let remainingTurnSeconds = 15;
+let currentTurnMaxSeconds = 15;
 
 // Client Modal Transition Timers
 let roundModalTimeout = null;
@@ -315,7 +315,6 @@ function setServerStatus(state) {
 
 setServerStatus('waking');
 
-// Auto-Reclaim on tab focus/return from external app
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     if (currentRoomId && socket.connected) {
@@ -569,7 +568,7 @@ function returnToLobby() {
   isInviteMode = false;
   isDeathMatchMode = false;
   isMatchConcluded = false;
-  currentTurnMaxSeconds = 30;
+  currentTurnMaxSeconds = 15;
   resetUrlParams();
 
   setServerStatus(socket.connected ? 'online' : 'waking');
@@ -646,7 +645,7 @@ socket.on('round_start', ({ round, format, targetWins, board, currentTurn, score
   strikeLine.style.strokeDashoffset = '600';
 
   isDeathMatchMode = !!isDeathMatch;
-  currentTurnMaxSeconds = turnDuration || (isDeathMatchMode ? 10 : 30);
+  currentTurnMaxSeconds = turnDuration || (isDeathMatchMode ? 8 : 15);
   currentRoomFormat = format;
   currentTargetWins = targetWins;
 
@@ -666,11 +665,11 @@ socket.on('round_start', ({ round, format, targetWins, board, currentTurn, score
 
 // Turn Timer Management
 socket.on('turn_timer_start', ({ duration }) => {
-  currentTurnMaxSeconds = duration || (isDeathMatchMode ? 10 : 30);
+  currentTurnMaxSeconds = duration || (isDeathMatchMode ? 8 : 15);
   startTurnTimer(currentTurnMaxSeconds);
 });
 
-function startTurnTimer(seconds = 30) {
+function startTurnTimer(seconds = 15) {
   stopTurnTimer();
   remainingTurnSeconds = seconds;
   updateTimerUI();
@@ -679,7 +678,7 @@ function startTurnTimer(seconds = 30) {
     remainingTurnSeconds--;
     updateTimerUI();
 
-    const dangerThreshold = currentTurnMaxSeconds === 10 ? 3 : 5;
+    const dangerThreshold = currentTurnMaxSeconds <= 8 ? 2 : 4;
     if (remainingTurnSeconds <= dangerThreshold && remainingTurnSeconds > 0) {
       sfx.playTick(true);
     }
@@ -709,8 +708,9 @@ function updateTimerUI() {
   const pct = Math.max(0, (remainingTurnSeconds / currentTurnMaxSeconds) * 100);
   turnTimerBar.style.width = `${pct}%`;
 
-  const safeLimit = currentTurnMaxSeconds === 10 ? 5 : 15;
-  const warnLimit = currentTurnMaxSeconds === 10 ? 2 : 6;
+  // Dynamic thresholds: 8s blitz mode vs 15s standard mode
+  const safeLimit = currentTurnMaxSeconds <= 8 ? 4 : 7;
+  const warnLimit = currentTurnMaxSeconds <= 8 ? 2 : 3;
 
   if (remainingTurnSeconds > safeLimit) {
     turnTimerBar.style.backgroundColor = 'var(--emerald)';
