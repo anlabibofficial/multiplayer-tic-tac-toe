@@ -17,10 +17,7 @@
 
       <div class="lobby-panel">
         <div class="brand">
-        <!-- <div class="brand-badge" id="brand-badge-text">Tic-Tac-Toe SHOWDOWN</div>  --> 
-
-          <!-- Server Online / Waking Status Indicator -->
-        <br>  <div id="server-status-pill" class="server-status waking" title="Server Status">
+          <br>  <div id="server-status-pill" class="server-status waking" title="Server Status">
             <span class="status-dot"></span>
             <span id="server-status-text" class="status-text">WAKING UP SERVER...</span>
           </div>
@@ -108,7 +105,6 @@
 
     <!-- SCREEN 3: ACTIVE 1v1 BATTLE ARENA -->
     <section id="game-screen" class="screen">
-      <!-- 2-TIER CLEAN IN-GAME HUD -->
       <header class="hud-top">
         <!-- Tier 1: Utility & Match Info Strip -->
         <div class="hud-tier-util">
@@ -140,10 +136,10 @@
             </div>
           </div>
 
-          <!-- Center Turn Timer Badge -->
+          <!-- Center Turn Timer Badge (Starts at 15s) -->
           <div class="turn-timer-badge" id="turn-timer-badge">
             <span class="timer-icon">⏱️</span>
-            <span id="turn-timer-sec">30</span>s
+            <span id="turn-timer-sec">15</span>s
           </div>
 
           <!-- Player 2 -->
@@ -197,11 +193,11 @@
           <div class="deathmatch-badge">OVERTIME DUEL</div>
           <h2>DEATH MATCH DECLARED!</h2>
           <p class="deathmatch-desc">
-            Series is deadlocked in a tie. Regulations are over. Rapid <strong>10-second blitz turns</strong> commence now! First round win takes the entire championship!
+            Series is deadlocked in a tie. Regulations are over. Rapid <strong>8-second blitz turns</strong> commence now! First round win takes the entire championship!
           </p>
 
           <div class="deathmatch-rules-box">
-            <div class="rule-item">⏱️ <strong>10s Moves:</strong> Strict auto-move punishment</div>
+            <div class="rule-item">⏱️ <strong>8s Moves:</strong> Strict auto-move punishment</div>
             <div class="rule-item">🏆 <strong>Golden Round:</strong> Any win seals the championship</div>
           </div>
 
@@ -303,8 +299,7 @@
     </div>
   </div>
 
- 
-<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-<script src="game.js"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>
