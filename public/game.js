@@ -100,10 +100,8 @@ class AudioFX {
 const sfx = new AudioFX();
 
 // ================= SOCKET & CLIENT STATE =================
-// Replace const socket = io(); with your Render URL:
 const BACKEND_URL = "https://multiplayer-tic-tac-toe-ompz.onrender.com";
 const socket = io(BACKEND_URL);
-
 
 let myPlayer = null;
 let currentRoomId = null;
@@ -310,7 +308,14 @@ setServerStatus('waking');
 // Socket Connection Lifecycle Handlers
 socket.on('connect', () => {
   setServerStatus('online');
-  if (isInviteMode && pendingRoomId) {
+
+  // If host was waiting and disconnected due to mobile app switch, reclaim slot
+  if (currentRoomId && waitingScreen.classList.contains('active') && myPlayer) {
+    socket.emit('rejoin_waiting_room', {
+      roomId: currentRoomId,
+      playerName: myPlayer.name
+    });
+  } else if (isInviteMode && pendingRoomId) {
     socket.emit('check_room', { roomId: pendingRoomId });
   }
 });
@@ -335,6 +340,14 @@ if (inviteParam) {
   const cleanCode = inviteParam.trim().toUpperCase();
   pendingRoomId = cleanCode;
   isInviteMode = true;
+
+  // Immediately display the invite view so standard card never flashes
+  standardLobbyCard.classList.add('hidden');
+  inviteLobbyCard.classList.remove('hidden');
+  inviteRoomCode.innerText = cleanCode;
+  inviteHostName.innerText = 'Connecting...';
+  btnAcceptInvite.disabled = true;
+
   if (socket.connected) {
     socket.emit('check_room', { roomId: pendingRoomId });
   }
@@ -365,11 +378,12 @@ socket.on('room_status', ({ exists, isFull, roomId, hostName, format, error }) =
       inviteHostName.innerText = hostName || 'Host';
       inviteRoomCode.innerText = roomId;
       inviteFormatBadge.innerText = `BEST OF ${format || 3}`;
+      btnAcceptInvite.disabled = false;
       invitePlayerNameInput.focus();
       return;
     } else {
       isInviteMode = false;
-      alert(isFull ? `Room ${roomId} is full.` : `Room ${roomId} was not found.`);
+      alert(isFull ? `Room ${roomId} is full.` : `Room ${roomId} was not found or has expired.`);
       resetUrlParams();
       standardLobbyCard.classList.remove('hidden');
       inviteLobbyCard.classList.add('hidden');
@@ -430,6 +444,7 @@ btnAcceptInvite.addEventListener('click', () => {
 btnDeclineInvite.addEventListener('click', () => {
   resetUrlParams();
   isInviteMode = false;
+  pendingRoomId = null;
   inviteLobbyCard.classList.add('hidden');
   standardLobbyCard.classList.remove('hidden');
 });
@@ -455,12 +470,22 @@ socket.on('joined', ({ player, roomState }) => {
   }
 });
 
+// Fixed: Generates full link preserving domain subpaths (e.g. /games/neongrid)
 btnCopyLink.addEventListener('click', () => {
-  const link = `${window.location.origin}?room=${currentRoomId}`;
-  navigator.clipboard.writeText(link).then(() => {
-    btnCopyLink.innerText = '✓ COPIED';
-    setTimeout(() => btnCopyLink.innerText = '🔗 COPY LINK', 1500);
-  });
+  const url = new URL(window.location.href);
+  url.search = `?room=${encodeURIComponent(currentRoomId)}`;
+  const link = url.toString();
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(link).then(() => {
+      btnCopyLink.innerText = '✓ COPIED';
+      setTimeout(() => btnCopyLink.innerText = '🔗 COPY LINK', 1500);
+    }).catch(() => {
+      prompt('Copy Arena Link:', link);
+    });
+  } else {
+    prompt('Copy Arena Link:', link);
+  }
 });
 
 btnCancelWaiting.addEventListener('click', () => {
