@@ -7,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // Replace with your frontend domain (e.g. "https://mysite.com") for strict security
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
@@ -53,6 +53,10 @@ function clearAllRoomTimers(room) {
     clearTimeout(room.deathMatchTimer);
     room.deathMatchTimer = null;
   }
+  if (room.abandonTimer) {
+    clearTimeout(room.abandonTimer);
+    room.abandonTimer = null;
+  }
 }
 
 function clearTurnTimer(room) {
@@ -75,14 +79,15 @@ io.on('connection', (socket) => {
     const room = rooms.get(cleanId);
     if (!room) {
       socket.emit('room_status', { exists: false, roomId: cleanId });
-    } else if (room.players.length >= 2) {
+    } else if (room.players.length >= 2 && !room.hostDisconnected) {
       socket.emit('room_status', { exists: true, isFull: true, roomId: cleanId });
     } else {
+      const host = room.players[0];
       socket.emit('room_status', {
         exists: true,
         isFull: false,
         roomId: cleanId,
-        hostName: room.players[0].name,
+        hostName: host ? host.name : 'Host',
         format: room.format
       });
     }
@@ -111,6 +116,8 @@ io.on('connection', (socket) => {
         countdownInterval: null,
         progressionTimer: null,
         deathMatchTimer: null,
+        abandonTimer: null,
+        hostDisconnected: false,
         isDeathMatch: false,
         deathMatchAnnounced: false,
         turnDuration: 30,
@@ -121,7 +128,7 @@ io.on('connection', (socket) => {
       rooms.set(cleanId, room);
     }
 
-    if (room.players.length >= 2) {
+    if (room.players.length >= 2 && !room.hostDisconnected) {
       socket.emit('error_message', 'Room is already full.');
       return;
     }
@@ -141,12 +148,58 @@ io.on('connection', (socket) => {
     socket.emit('joined', { player, roomState: serializeRoom(room) });
     io.to(cleanId).emit('room_update', { players: room.players });
 
-    if (room.players.length === 2) {
+    // Only start countdown if both players are present and host is not backgrounded
+    if (room.players.length === 2 && !room.hostDisconnected) {
       startCountdown(room);
     }
   });
 
-  // 3. Move Execution (Validated)
+  // 3. Rejoin Room (After mobile backgrounding/tab switch)
+  socket.on('rejoin_waiting_room', ({ roomId, playerName }) => {
+    const cleanId = (roomId || '').trim().toUpperCase();
+    const room = rooms.get(cleanId);
+    if (!room) {
+      socket.emit('left_room_success');
+      return;
+    }
+
+    if (room.abandonTimer) {
+      clearTimeout(room.abandonTimer);
+      room.abandonTimer = null;
+    }
+
+    room.hostDisconnected = false;
+    userRoomId = cleanId;
+    socket.join(cleanId);
+
+    // Reconnect host slot (Symbol X)
+    let hostPlayer = room.players.find(p => p.symbol === 'X') || room.players[0];
+    if (hostPlayer) {
+      const oldId = hostPlayer.id;
+      delete room.scores[oldId];
+      hostPlayer.id = socket.id;
+      if (playerName) hostPlayer.name = playerName;
+      room.scores[socket.id] = 0;
+    } else {
+      hostPlayer = {
+        id: socket.id,
+        name: playerName || 'Host',
+        symbol: 'X'
+      };
+      room.players.unshift(hostPlayer);
+      room.scores[socket.id] = 0;
+    }
+
+    socket.emit('joined', { player: hostPlayer, roomState: serializeRoom(room) });
+    io.to(cleanId).emit('room_update', { players: room.players });
+
+    // If opponent already joined while host was sharing link, start the match
+    if (room.players.length === 2 && !room.countdownInterval && !room.currentTurn) {
+      startCountdown(room);
+    }
+  });
+
+  // 4. Move Execution
   socket.on('make_move', ({ cellIndex }) => {
     if (!userRoomId) return;
     const room = rooms.get(userRoomId);
@@ -158,12 +211,12 @@ io.on('connection', (socket) => {
     processMove(room, cellIndex);
   });
 
-  // 4. Leave Room Listener
+  // 5. Leave Room (Voluntary Exit / Concede)
   socket.on('leave_room', () => {
-    cleanupPlayerExit(socket);
+    cleanupPlayerExit(socket, true);
   });
 
-  // 5. Rematch Handler
+  // 6. Rematch Handler
   socket.on('request_rematch', () => {
     if (!userRoomId) return;
     const room = rooms.get(userRoomId);
@@ -186,36 +239,55 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 6. Disconnect Handler
+  // 7. Disconnect Handler (Socket drop / App backgrounded)
   socket.on('disconnect', () => {
-    cleanupPlayerExit(socket);
+    cleanupPlayerExit(socket, false);
   });
 
-  function cleanupPlayerExit(s) {
+  function cleanupPlayerExit(s, isVoluntary = false) {
     if (!userRoomId) return;
     const room = rooms.get(userRoomId);
-    if (room) {
-      clearAllRoomTimers(room);
-      const leavingPlayer = room.players.find(p => p.id === s.id);
-      const remainingPlayer = room.players.find(p => p.id !== s.id);
+    if (!room) return;
 
-      room.players = room.players.filter(p => p.id !== s.id);
-      delete room.scores[s.id];
-      s.leave(userRoomId);
-
-      if (room.players.length === 0) {
-        rooms.delete(userRoomId);
-      } else if (remainingPlayer) {
-        if (!room.isMatchOver) {
-          io.to(userRoomId).emit('opponent_forfeited', {
-            leaverName: leavingPlayer ? leavingPlayer.name : 'Opponent',
-            winner: remainingPlayer
-          });
-        }
-        rooms.delete(userRoomId);
-      }
-    }
+    const roomId = userRoomId;
     userRoomId = null;
+    s.leave(roomId);
+
+    // CASE A: Host backgrounding app while waiting for challenger (Grace Period)
+    if (!isVoluntary && room.players.length === 1 && !room.isMatchOver) {
+      room.hostDisconnected = true;
+      if (room.abandonTimer) clearTimeout(room.abandonTimer);
+
+      // Keep room alive for 90 seconds while host copies/shares link
+      room.abandonTimer = setTimeout(() => {
+        if (room.hostDisconnected) {
+          clearAllRoomTimers(room);
+          rooms.delete(roomId);
+        }
+      }, 90000);
+      return;
+    }
+
+    // CASE B: Voluntary leave or active match disconnect
+    clearAllRoomTimers(room);
+    const leavingPlayer = room.players.find(p => p.id === s.id);
+    const remainingPlayer = room.players.find(p => p.id !== s.id);
+
+    room.players = room.players.filter(p => p.id !== s.id);
+    delete room.scores[s.id];
+
+    if (room.players.length === 0) {
+      rooms.delete(roomId);
+    } else if (remainingPlayer) {
+      if (!room.isMatchOver) {
+        io.to(roomId).emit('opponent_forfeited', {
+          leaverName: leavingPlayer ? leavingPlayer.name : 'Opponent',
+          winner: remainingPlayer
+        });
+      }
+      rooms.delete(roomId);
+    }
+
     s.emit('left_room_success');
   }
 });
@@ -369,27 +441,23 @@ function processMove(room, cellIndex) {
 function handleRoundProgression(room, matchEnding = false) {
   clearTurnTimer(room);
   const [p1, p2] = room.players;
-  // If match is over, transition directly after board strike line without long delay
   const transitionDelay = matchEnding ? 1500 : 3400;
 
   room.progressionTimer = setTimeout(() => {
     room.progressionTimer = null;
     if (!rooms.has(room.id) || room.players.length < 2) return;
 
-    // A. Sudden Death Mode
     if (room.isDeathMatch) {
       if (room.lastRoundWinner) {
         room.isMatchOver = true;
         io.to(room.id).emit('match_over', { matchWinner: room.lastRoundWinner, scores: room.scores });
       } else {
-        // Repeated draw in death match: skip 10s relaxation, run immediate 3-2-1 countdown
         room.round++;
         startCountdown(room);
       }
       return;
     }
 
-    // B. Regulation Match Progression
     const reachedTarget = room.scores[p1.id] >= room.targetWins || room.scores[p2.id] >= room.targetWins;
     const formatCompleted = room.round >= room.format;
 
