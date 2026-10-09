@@ -99,12 +99,23 @@ class AudioFX {
 
 const sfx = new AudioFX();
 
+// ================= SESSION TOKEN (SURVIVES MOBILE APP SWITCHES) =================
+let playerToken = sessionStorage.getItem('neongrid_player_token');
+if (!playerToken) {
+  playerToken = 'tok_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+  sessionStorage.setItem('neongrid_player_token', playerToken);
+}
+
 // ================= SOCKET & CLIENT STATE =================
 const BACKEND_URL = "https://multiplayer-tic-tac-toe-ompz.onrender.com";
-const socket = io(BACKEND_URL);
+const socket = io(BACKEND_URL, {
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 800
+});
 
 let myPlayer = null;
-let currentRoomId = null;
+let currentRoomId = sessionStorage.getItem('neongrid_active_room') || null;
 let isMyTurn = false;
 let pendingRoomId = null;
 let currentPlayers = [];
@@ -302,18 +313,30 @@ function setServerStatus(state) {
   }
 }
 
-// Initial status state
 setServerStatus('waking');
+
+// Auto-Reclaim on tab focus/return from external app
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    if (currentRoomId && socket.connected) {
+      socket.emit('rejoin_room', {
+        roomId: currentRoomId,
+        playerToken,
+        playerName: myPlayer ? myPlayer.name : (sessionStorage.getItem('neongrid_player_name') || '')
+      });
+    }
+  }
+});
 
 // Socket Connection Lifecycle Handlers
 socket.on('connect', () => {
   setServerStatus('online');
 
-  // If host was waiting and disconnected due to mobile app switch, reclaim slot
-  if (currentRoomId && waitingScreen.classList.contains('active') && myPlayer) {
-    socket.emit('rejoin_waiting_room', {
+  if (currentRoomId) {
+    socket.emit('rejoin_room', {
       roomId: currentRoomId,
-      playerName: myPlayer.name
+      playerToken,
+      playerName: myPlayer ? myPlayer.name : (sessionStorage.getItem('neongrid_player_name') || '')
     });
   } else if (isInviteMode && pendingRoomId) {
     socket.emit('check_room', { roomId: pendingRoomId });
@@ -341,7 +364,6 @@ if (inviteParam) {
   pendingRoomId = cleanCode;
   isInviteMode = true;
 
-  // Immediately display the invite view so standard card never flashes
   standardLobbyCard.classList.add('hidden');
   inviteLobbyCard.classList.remove('hidden');
   inviteRoomCode.innerText = cleanCode;
@@ -383,7 +405,7 @@ socket.on('room_status', ({ exists, isFull, roomId, hostName, format, error }) =
       return;
     } else {
       isInviteMode = false;
-      alert(isFull ? `Room ${roomId} is full.` : `Room ${roomId} was not found or has expired.`);
+      alert(isFull ? `Room ${roomId} is currently full.` : `Room ${roomId} was not found or has expired.`);
       resetUrlParams();
       standardLobbyCard.classList.remove('hidden');
       inviteLobbyCard.classList.add('hidden');
@@ -432,13 +454,24 @@ btnModalCancel.addEventListener('click', () => {
 btnModalConfirm.addEventListener('click', () => {
   inspectorModal.classList.add('hidden');
   const playerName = playerNameInput.value.trim();
-  socket.emit('join_or_create', { roomId: pendingRoomId, playerName, format: selectedFormat });
+  sessionStorage.setItem('neongrid_player_name', playerName);
+  socket.emit('join_or_create', {
+    roomId: pendingRoomId,
+    playerName,
+    format: selectedFormat,
+    playerToken
+  });
 });
 
 btnAcceptInvite.addEventListener('click', () => {
   sfx.init();
   const playerName = invitePlayerNameInput.value.trim();
-  socket.emit('join_or_create', { roomId: pendingRoomId, playerName });
+  sessionStorage.setItem('neongrid_player_name', playerName);
+  socket.emit('join_or_create', {
+    roomId: pendingRoomId,
+    playerName,
+    playerToken
+  });
 });
 
 btnDeclineInvite.addEventListener('click', () => {
@@ -453,6 +486,7 @@ btnDeclineInvite.addEventListener('click', () => {
 socket.on('joined', ({ player, roomState }) => {
   myPlayer = player;
   currentRoomId = roomState.id;
+  sessionStorage.setItem('neongrid_active_room', currentRoomId);
   currentRoomFormat = roomState.format;
   currentTargetWins = roomState.targetWins;
   currentPlayers = roomState.players;
@@ -467,10 +501,13 @@ socket.on('joined', ({ player, roomState }) => {
   if (roomState.players.length === 1) {
     waitingScreen.classList.add('active');
     startDemoMiniCanvas();
+  } else if (roomState.matchStarted) {
+    waitingScreen.classList.remove('active');
+    gameScreen.classList.add('active');
+    updateHudPlayers(currentPlayers, roomState.scores);
   }
 });
 
-// Fixed: Generates full link preserving domain subpaths (e.g. /games/neongrid)
 btnCopyLink.addEventListener('click', () => {
   const url = new URL(window.location.href);
   url.search = `?room=${encodeURIComponent(currentRoomId)}`;
@@ -480,9 +517,7 @@ btnCopyLink.addEventListener('click', () => {
     navigator.clipboard.writeText(link).then(() => {
       btnCopyLink.innerText = '✓ COPIED';
       setTimeout(() => btnCopyLink.innerText = '🔗 COPY LINK', 1500);
-    }).catch(() => {
-      prompt('Copy Arena Link:', link);
-    });
+    }).catch(() => prompt('Copy Arena Link:', link));
   } else {
     prompt('Copy Arena Link:', link);
   }
@@ -502,10 +537,17 @@ socket.on('left_room_success', () => {
   returnToLobby();
 });
 
+socket.on('room_abandoned', () => {
+  alert('Room was closed due to opponent inactivity.');
+  returnToLobby();
+});
+
 function returnToLobby() {
   stopTurnTimer();
   clearPendingUiTimeouts();
   stopDemoMiniCanvas();
+  sessionStorage.removeItem('neongrid_active_room');
+
   waitingScreen.classList.remove('active');
   gameScreen.classList.remove('active');
   victoryModal.classList.add('hidden');
@@ -560,6 +602,12 @@ socket.on('countdown_tick', ({ count }) => {
   forfeitModal.classList.add('hidden');
   countdownNum.innerText = count;
   sfx.playTick(false);
+});
+
+socket.on('countdown_cancelled', ({ message }) => {
+  countdownModal.classList.add('hidden');
+  turnBanner.innerText = message || 'Opponent reconnecting...';
+  turnBanner.style.color = 'var(--gold-primary)';
 });
 
 // Sudden Death Intermission Announcement
@@ -703,7 +751,7 @@ socket.on('turn_change', ({ currentTurn }) => {
 });
 
 function updateTurnState(currentTurn) {
-  isMyTurn = (currentTurn === myPlayer.id);
+  isMyTurn = (currentTurn === socket.id || (myPlayer && currentTurn === myPlayer.id));
   const isX = (currentTurn === socket.id ? myPlayer.symbol : (myPlayer.symbol === 'X' ? 'O' : 'X')) === 'X';
   turnBanner.innerText = isMyTurn ? 'YOUR TURN' : `${isX ? 'X' : 'O'}'S TURN`;
   turnBanner.style.color = isMyTurn ? 'var(--gold-primary)' : 'var(--text-muted)';
@@ -716,14 +764,14 @@ socket.on('round_over', ({ winner, winningCombo, scores, round, format, targetWi
   updateHudPlayers(currentPlayers, scores);
 
   const [p1, p2] = currentPlayers;
-  const p1Score = scores[p1.id] || 0;
-  const p2Score = scores[p2.id] || 0;
+  const p1Score = scores[p1.token] || scores[p1.id] || 0;
+  const p2Score = scores[p2.token] || scores[p2.id] || 0;
 
   if (winningCombo) {
     drawWinningLine(winningCombo);
   }
 
-  if (winner && winner.id === myPlayer.id) {
+  if (winner && (winner.id === socket.id || (myPlayer && winner.token === myPlayer.token))) {
     sfx.playWin();
   }
 
@@ -747,7 +795,7 @@ socket.on('round_over', ({ winner, winningCombo, scores, round, format, targetWi
     if (isDraw) {
       roundCardContainer.classList.add('state-draw');
       roundModalTitle.innerText = 'ROUND DRAW';
-    } else if (winner.id === myPlayer.id) {
+    } else if (winner && (winner.id === socket.id || (myPlayer && winner.token === myPlayer.token))) {
       roundCardContainer.classList.add('state-won');
       roundModalTitle.innerText = 'YOU WON THIS ROUND!';
     } else {
@@ -769,8 +817,8 @@ socket.on('match_over', ({ matchWinner, scores }) => {
   isMatchConcluded = true;
 
   const [p1, p2] = currentPlayers;
-  const p1Score = scores[p1.id] || 0;
-  const p2Score = scores[p2.id] || 0;
+  const p1Score = scores[p1.token] || scores[p1.id] || 0;
+  const p2Score = scores[p2.token] || scores[p2.id] || 0;
 
   matchModalTimeout = setTimeout(() => {
     roundModal.classList.add('hidden');
@@ -782,15 +830,17 @@ socket.on('match_over', ({ matchWinner, scores }) => {
 
     victoryCard.classList.remove('state-champion', 'state-defeat');
 
+    const isMeWinner = matchWinner && (matchWinner.id === socket.id || (myPlayer && matchWinner.token === myPlayer.token));
+
     if (!matchWinner) {
       victoryIcon.innerText = '🤝';
       victoryTitle.innerText = 'MATCH DRAW!';
       victorySubtitle.innerText = `Identical mastery after match (${p1Score} — ${p2Score}).`;
-    } else if (matchWinner.id === myPlayer.id) {
+    } else if (isMeWinner) {
       victoryCard.classList.add('state-champion');
       victoryIcon.innerText = isDeathMatchMode ? '⚡' : '🏆';
       victoryTitle.innerText = isDeathMatchMode ? 'SUDDEN DEATH CHAMPION! ⚡' : 'CHAMPION! 🏆';
-      victorySubtitle.innerText = `You won the showdown (${scores[myPlayer.id]} round points)!`;
+      victorySubtitle.innerText = `You won the showdown (${p1Score} vs ${p2Score})!`;
       sfx.playWin();
     } else {
       victoryCard.classList.add('state-defeat');
@@ -852,7 +902,7 @@ function updateHudPlayers(players, scores = {}) {
   p2Name.innerText = p2.name;
 
   if (myPlayer) {
-    const isP1Me = p1.id === myPlayer.id;
+    const isP1Me = p1.token === myPlayer.token || p1.id === myPlayer.id;
     p1Tag.innerText = isP1Me ? '(YOU)' : '(OPPONENT)';
     p1Tag.className = `p-role-tag ${isP1Me ? 'tag-you' : 'tag-opp'}`;
 
@@ -860,8 +910,8 @@ function updateHudPlayers(players, scores = {}) {
     p2Tag.className = `p-role-tag ${isP1Me ? 'tag-opp' : 'tag-you'}`;
   }
 
-  const p1Wins = scores[p1.id] || 0;
-  const p2Wins = scores[p2.id] || 0;
+  const p1Wins = scores[p1.token] || scores[p1.id] || 0;
+  const p2Wins = scores[p2.token] || scores[p2.id] || 0;
 
   p1WinText.innerText = `${p1Wins} ${p1Wins === 1 ? 'Win' : 'Wins'}`;
   p2WinText.innerText = `${p2Wins} ${p2Wins === 1 ? 'Win' : 'Wins'}`;
