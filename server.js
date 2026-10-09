@@ -154,7 +154,7 @@ io.on('connection', (socket) => {
         reconnectTimer: null,
         isDeathMatch: false,
         deathMatchAnnounced: false,
-        turnDuration: 30,
+        turnDuration: 15, // Updated to 15-second standard turn
         matchStarted: false,
         isMatchOver: false,
         lastRoundWinner: null,
@@ -163,7 +163,6 @@ io.on('connection', (socket) => {
       rooms.set(cleanId, room);
     }
 
-    // Check if player is already registered in this room via playerToken
     let existingPlayer = room.players.find(p => p.token === playerToken);
     if (existingPlayer) {
       existingPlayer.id = socket.id;
@@ -195,7 +194,6 @@ io.on('connection', (socket) => {
     socket.emit('joined', { player: existingPlayer, roomState: serializeRoom(room) });
     io.to(cleanId).emit('room_update', { players: room.players });
 
-    // Only start if 2 players are in the room and both are currently active
     if (room.players.length === 2 && room.players.every(p => p.isConnected)) {
       if (!room.matchStarted && !room.countdownInterval) {
         startCountdown(room);
@@ -203,7 +201,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 3. Rejoin Room (Mobile tab wake-up / network reconnect)
+  // 3. Rejoin Room
   socket.on('rejoin_room', ({ roomId, playerToken, playerName }) => {
     if (!roomId || !playerToken) return;
     const cleanId = roomId.trim().toUpperCase();
@@ -245,13 +243,11 @@ io.on('connection', (socket) => {
     socket.emit('joined', { player, roomState: serializeRoom(room) });
     io.to(cleanId).emit('room_update', { players: room.players });
 
-    // If pre-match and both players are ready, begin countdown
     if (!room.matchStarted && room.players.length === 2 && room.players.every(p => p.isConnected)) {
       if (!room.countdownInterval) {
         startCountdown(room);
       }
     } else if (room.matchStarted && !room.isMatchOver) {
-      // Re-sync active board
       socket.emit('round_start', {
         round: room.round,
         format: room.format,
@@ -296,7 +292,7 @@ io.on('connection', (socket) => {
       room.round = 1;
       room.isDeathMatch = false;
       room.deathMatchAnnounced = false;
-      room.turnDuration = 30;
+      room.turnDuration = 15; // Reset to 15s on rematch
       room.matchStarted = false;
       room.isMatchOver = false;
       room.lastRoundWinner = null;
@@ -319,7 +315,6 @@ io.on('connection', (socket) => {
     const roomId = userRoomId;
     const player = room.players.find(p => p.token === userPlayerToken || p.id === s.id);
 
-    // Stale/ghost socket protection: If the player reconnected on a newer socket ID, ignore this old disconnect
     if (player && player.id !== s.id) {
       return;
     }
@@ -330,7 +325,6 @@ io.on('connection', (socket) => {
     if (!player) return;
     player.isConnected = false;
 
-    // SCENARIO 1: Explicit Voluntary Forfeit
     if (isVoluntary) {
       clearAllRoomTimers(room);
       const remainingPlayer = room.players.find(p => p.token !== player.token);
@@ -348,7 +342,6 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // SCENARIO 2: Involuntary Disconnect BEFORE Match Starts (Sharing link/backgrounded)
     if (!room.matchStarted) {
       if (room.countdownInterval) {
         clearInterval(room.countdownInterval);
@@ -367,7 +360,6 @@ io.on('connection', (socket) => {
         }))
       });
 
-      // Keep room intact for up to 90s so host can paste link in WhatsApp/Messenger
       if (room.graceTimer) clearTimeout(room.graceTimer);
       room.graceTimer = setTimeout(() => {
         if (room.players.some(p => !p.isConnected)) {
@@ -380,9 +372,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // SCENARIO 3: Involuntary Disconnect DURING Active Match
     if (room.matchStarted && !room.isMatchOver) {
-      // 15-second grace window to recover from network drops or call interruptions
       io.to(roomId).emit('player_temporarily_disconnected', {
         name: player.name,
         graceSeconds: 15
@@ -462,7 +452,7 @@ function startRound(room) {
 
 function startTurnTimer(room) {
   clearTurnTimer(room);
-  const duration = room.turnDuration || 30;
+  const duration = room.turnDuration || 15;
   io.to(room.id).emit('turn_timer_start', { duration });
 
   room.turnTimer = setTimeout(() => {
@@ -587,7 +577,7 @@ function handleRoundProgression(room, matchEnding = false) {
 function initiateDeathMatch(room) {
   room.isDeathMatch = true;
   room.deathMatchAnnounced = true;
-  room.turnDuration = 10;
+  room.turnDuration = 8; // Updated to 8-second blitz turns
 
   io.to(room.id).emit('death_match_announced', { intermissionSeconds: 10 });
 
